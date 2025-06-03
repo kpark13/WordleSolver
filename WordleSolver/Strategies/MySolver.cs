@@ -1,123 +1,116 @@
-
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using WordleSolver;
+//Our strategy uses a conservative approach for the first three guesses followed by an elimination process based on the information gained from the previous guesses. On the first guess, it always picks the word "spine", because of its common letters to maximize information gain. If that guess doesn't solve the puzzle, it then guesses 'tardy" on the second turn, because it is another word with common letters to further gain information. If a third guess is needed, it uses "jumbo", because of its distinct vowels. After every guess the algorithm filters the remaining possible words by comparing the guess results (correct position, wrong position, or unused) to remove any impossible words. From the fourth guess on, or earlier if only three possible words remains, it simply picks the first remaining word in the filtered list. This strategy is simple but effective. it starts with guesses that provide high information, then narrows down the solution based on Wordle's letter results rules.
 
-namespace WordleSolver.Strategies;
-
-/// <summary>
-/// Example solver that simply iterates through a fixed list of words.
-/// Students will replace this with a smarter algorithm.
-/// </summary>
-public sealed class MySolver : IWordleSolverStrategy
+namespace WordleSolver.Strategies
 {
-	/// <summary>Absolute or relative path of the word-list file.</summary>
-	private static readonly string WordListPath = Path.Combine("data", "wordle.txt");
-
-	/// <summary>In-memory dictionary of valid five-letter words.</summary>
-	private static readonly List<string> WordList = LoadWordList();
-
-    /// <summary>
-    /// Remaining words that can be chosen
-    /// </summary>
-    private List<string> _remainingWords = new();
-    
-    // TODO: ADD your own private variables that you might need
-
-    /// <summary>
-    /// Loads the dictionary from disk, filtering to distinct five-letter lowercase words.
-    /// </summary>
-    private static List<string> LoadWordList()
+    public sealed class MySolver : IWordleSolverStrategy
     {
-	    if (!File.Exists(WordListPath))
-		    throw new FileNotFoundException($"Word list not found at path: {WordListPath}");
+        private static readonly string WordListPath = Path.Combine("data", "wordle.txt");
 
-	    return File.ReadAllLines(WordListPath)
-		    .Select(w => w.Trim().ToLowerInvariant())
-		    .Where(w => w.Length == 5)
-		    .Distinct()
-		    .ToList();
-    }
+        private static readonly List<string> WordList = LoadWordList();
 
-    /// <inheritdoc/>
-    public void Reset()
-    {
-		// TODO: What should happen when a new game starts?
+        private List<string> _remainingWords = new();
 
-		// If using SLOW student strategy, we just reset the current index
-		// to the first word to start the next guessing sequence
-        _remainingWords = [..WordList];  // Set _remainingWords to a copy of the full word list
-    }
-
-    /// <summary>
-    /// Determines the next word to guess given feedback from the previous guess.
-    /// </summary>
-    /// <param name="previousResult">
-    /// The <see cref="GuessResult"/> returned by the game engine for the last guess
-    /// (or <see cref="GuessResult.Default"/> if this is the first turn).
-    /// </param>
-    /// <returns>A five-letter lowercase word.</returns>
-    public string PickNextGuess(GuessResult previousResult)
-    {
-        // Analyze previousResult and remove any words from
-        // _remainingWords that aren't possible
-
-        if (!previousResult.IsValid)
-            throw new InvalidOperationException("PickNextGuess shouldn't be called if previous result isn't valid");
-
-        // Check if first guess
-        //Guesses 3 initial words to narrow down the search
-        if (previousResult.Guesses.Count == 0)
+       
+        private static List<string> LoadWordList()
         {
-            // TODO: Pick the best starting word from wordle.txt 
-            // BE CAREFUL that the first word you pick is in that wordle.txt list or your
-            // program won't work. Regular Wordle allows users to guess any five-letter
-            // word from a much larger dictionary, but we restrict it to the words that
-            // can actually be chosen by WordleService to make it easier on you.
-            string firstWord = "spine";
+            if (!File.Exists(WordListPath))
+                throw new FileNotFoundException($"Word list not found at path: {WordListPath}");
 
-            // Filter _remainingWords to remove any words that don't match the first word
-            _remainingWords.Remove(firstWord);
-
-            return firstWord;
+            return File.ReadAllLines(WordListPath)
+                .Select(w => w.Trim().ToLowerInvariant()) 
+                .Where(w => w.Length == 5) 
+                .Distinct() 
+                .ToList();
         }
-        else if (previousResult.Guesses.Count == 1)
+
+        public void Reset()
         {
-            // Second guess
-            string secondWord = "jumbo";
-            _remainingWords.Remove(secondWord);
+            _remainingWords = new List<string>(WordList);
+        }
 
-            return secondWord;
-        }
-        else if (previousResult.Guesses.Count == 2)
+        public string PickNextGuess(GuessResult previousResult)
         {
-            //Third guess
-            string thirdWord = "tardy";
-            _remainingWords.Remove(thirdWord);
+            if (!previousResult.IsValid)
+                throw new InvalidOperationException("PickNextGuess shouldn't be called if previous result isn't valid");
 
-            return thirdWord;
-        }
-        else
-        {
-        }
-            // Utilize the remaining words to choose the next guess
+            // If we're past the first guess, filter the word list based on feedback
+            if (previousResult.GuessNumber > 0)
+            {
+                string lastGuess = previousResult.Word;
+                var statuses = previousResult.LetterStatuses;
+
+                // Filter out words that don't match feedback from the last guess
+                _remainingWords = _remainingWords.Where(candidate =>
+                {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        char guessedChar = lastGuess[i];
+                        char candidateChar = candidate[i];
+
+                        if (statuses[i] == LetterStatus.Correct)
+                        {
+                            // Letter must be in the correct position
+                            if (candidateChar != guessedChar)
+                                return false;
+                        }
+                        else if (statuses[i] == LetterStatus.Misplaced)
+                        {
+                            // Letter must be present but in a different position
+                            if (candidateChar == guessedChar || !candidate.Contains(guessedChar))
+                                return false;
+                        }
+                        else if (statuses[i] == LetterStatus.Unused)
+                        {
+                            // Check if letter is truly unused (not in any other position)
+                            bool guessedElsewhere = false;
+                            for (int j = 0; j < 5; j++)
+                            {
+                                if (j != i && lastGuess[j] == guessedChar && statuses[j] != LetterStatus.Unused)
+                                {
+                                    guessedElsewhere = true;
+                                    break;
+                                }
+                            }
+
+                            // If not used elsewhere, remove candidates that still have it
+                            if (!guessedElsewhere && candidate.Contains(guessedChar))
+                                return false;
+                        }
+                    }
+                    return true; // Keep this word
+                }).ToList();
+            }
+
+            // Hardcoded guesses for the first three rounds to gain information
+            if (previousResult.Guesses.Count == 0)
+                return "spine";
+
+            if (previousResult.Guesses.Count == 1 && _remainingWords.Count < 4)
+                return _remainingWords.First();
+
+            if (previousResult.Guesses.Count == 1)
+                return "tardy";
+
+            if (previousResult.Guesses.Count == 2 && _remainingWords.Count < 4)
+                return _remainingWords.First();
+
+            if (previousResult.Guesses.Count == 2)
+                return "jumbo";
+
+            // From 4th guess onward, choose from remaining words
             string choice = ChooseBestRemainingWord(previousResult);
-            _remainingWords.Remove(choice);
-
+            _remainingWords.Remove(choice); // Avoid guessing it again
             return choice;
-    }
+        }
 
-    /// <summary>
-    /// Pick the best of the remaining words according to some heuristic.
-    /// For example, you might want to choose the word that has the most
-    /// common letters found in the remaining words list
-    /// </summary>
-    /// <param name="previousResult"></param>
-    /// <returns></returns>
-    public string ChooseBestRemainingWord(GuessResult previousResult)
-    {
-        if (_remainingWords.Count == 0)
-            throw new InvalidOperationException("No remaining words to choose from");
-
-        // Obviously the first word is the best right?
-        return _remainingWords.First();  
+        public string ChooseBestRemainingWord(GuessResult previousResult)
+        {
+            return _remainingWords.First();
+        }
     }
 }

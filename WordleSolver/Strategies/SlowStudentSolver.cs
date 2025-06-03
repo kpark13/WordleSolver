@@ -77,6 +77,7 @@ public sealed class SlowStudentSolver : IWordleSolverStrategy
             _remainingWords.Remove(firstWord);
 
             return firstWord;  
+
         }
         else
         {
